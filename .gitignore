@@ -1,0 +1,10 @@
+_build/
+*.byte
+counter
+mifare.byte
+
+*.mfd
+*.key
+*.o
+
+*.swp
