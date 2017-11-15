@@ -133,6 +133,82 @@ let b_access_of_trailer block trailer =
   let c3 = test (Bytes.get trailer 8) (0x10 lsl block) in
   b_access_of_bits (c1, c2, c3)
 
-(* Ensure (monadically) that the default settings are usable,
+
+(* FIXME forbid nested authentications, and
+ * Ensure (monadically) that the default settings are usable,
  * i.e. allow the program to work without an Access Denied error.
  * But first, move this to an Access module. *)
+
+type (
+  'a, 'b, 'c, 'd, (* block 0 *)
+  'e, 'f, 'g, 'h, (* block 1 *)
+  'i, 'j, 'k, 'l, (* block 2 *)
+  'm, 'n, 'o, 'p, 'q, 'r, (* trailer *)
+  'x (* key *)
+) sector = {
+  key: 'x;
+  sector: int;
+  s_lin: bool;
+}
+
+let authenticate_a sector key =
+  assert (String.length key <= 6);
+  {key = `A; sector; s_lin = true}
+
+let authenticate_b sector key =
+  assert (String.length key <= 6);
+  {key = `B; sector; s_lin = true}
+
+type ('a, 'b, 'c, 'd, 'x) block = {
+  block: int; (* absolute number *)
+  b_lin: bool;
+}
+
+let access_0 {sector; s_lin} =
+  assert s_lin;
+  {block = 4 * sector; b_lin = true}
+
+let access_1 {sector; s_lin} =
+  assert s_lin;
+  {block = 4 * sector + 1; b_lin = true}
+
+let access_2 {sector; s_lin} =
+  assert s_lin;
+  {block = 4 * sector + 2; b_lin = true}
+
+(*
+let access_t {sector; s_lin} =
+  assert s_lin;
+  {block = 4 * sector + 3; b_lin = true}
+*)
+
+let read {block; b_lin} =
+  assert b_lin;
+  "TODO"
+
+let read_a = read
+let read_b = read
+
+let write {block; b_lin} value =
+  assert b_lin;
+  assert (Bytes.length value = 16);
+  ()
+
+let write_a = write
+let write_b = write
+
+let increment {block; b_lin} amount =
+  assert b_lin;
+  assert (amount >= 0);
+  ()
+
+let increment_a = increment
+let increment_b = increment
+
+let decrement {block; b_lin} amount =
+  assert b_lin;
+  assert (amount >= 0);
+  ()
+
+let decrement_a = decrement
+let decrement_b = decrement
