@@ -1,135 +1,132 @@
 (** Shortcuts for access types *)
 type a = [`A] (** key A *)
 and b = [`B] (** key B *)
-and n = [`N] (** never *)
+and n = [`N] (** none *)
 and x = [`A | `B] (** both *)
 
 
 (** Access conditions for sector trailers, see Table 7 *)
-type ('a_read, 'a_write, 't_read, 't_write, 'b_read, 'b_write) t_access =
-    NAANAA : (n, a, a, n, a, a) t_access
-  | NNANAN : (n, n, a, n, a, n) t_access
-  | NBXNNB : (n, b, x, n, n, b) t_access
-  | NNXNNN : (n, n, x, n, n, n) t_access
-  | NAAAAA : (n, a, a, a, a, a) t_access
-  | NBXBNB : (n, b, x, b, n, b) t_access
-  | NNXBNN : (n, n, x, b, n, n) t_access
-  | NNXNNN' : (n, n, x, n, n, n) t_access
+type _ t_access =
+    NAANAA : <a_r: n; a_w: a; t_r: a; t_w: n; b_r: a; b_w: a> t_access
+  | NNANAN : <a_r: n; a_w: n; t_r: a; t_w: n; b_r: a; b_w: n> t_access
+  | NBXNNB : <a_r: n; a_w: b; t_r: x; t_w: n; b_r: n; b_w: b> t_access
+  | NNXNNN : <a_r: n; a_w: n; t_r: x; t_w: n; b_r: n; b_w: n> t_access
+  | NAAAAA : <a_r: n; a_w: a; t_r: a; t_w: a; b_r: a; b_w: a> t_access
+  | NBXBNB : <a_r: n; a_w: b; t_r: x; t_w: b; b_r: n; b_w: b> t_access
+  | NNXBNN : <a_r: n; a_w: n; t_r: x; t_w: b; b_r: n; b_w: n> t_access
+  | NNXNNN' : <a_r: n; a_w: n; t_r: x; t_w: n; b_r: n; b_w: n> t_access
 
-(** Existential wrapper *)
-type t_access_wrapper =
-    T_Any : ('a, 'b, 'c, 'd, 'e, 'f) t_access -> t_access_wrapper
+val string_of_t_access : _ t_access -> string
 
-val string_of_t_access : t_access_wrapper -> string
+type t_access_wrapper = T_Any: _ t_access -> t_access_wrapper
 val t_access_of_trailer : bytes -> t_access_wrapper
 
 
 (** Access conditions for data blocks, see Table 8 *)
-type ('read, 'write, 'increment, 'decr_tran_rest) b_access =
-    XXXX : (x, x, x, x) b_access
-  | XNNN : (x, n, n, n) b_access
-  | XBNN : (x, b, n, n) b_access
-  | XBBX : (x, b, b, x) b_access
-  | XNNX : (x, n, n, x) b_access
-  | BBNN : (b, b, n, n) b_access
-  | BNNN : (b, n, n, n) b_access
-  | NNNN : (n, n, n, n) b_access
+type _ b_access =
+    XXXX : <read: x; write: x; inc: x; dec_tsf_res: x> b_access
+  | XNNN : <read: x; write: n; inc: n; dec_tsf_res: n> b_access
+  | XBNN : <read: x; write: b; inc: n; dec_tsf_res: n> b_access
+  | XBBX : <read: x; write: b; inc: b; dec_tsf_res: x> b_access
+  | XNNX : <read: x; write: n; inc: n; dec_tsf_res: x> b_access
+  | BBNN : <read: b; write: b; inc: n; dec_tsf_res: n> b_access
+  | BNNN : <read: b; write: n; inc: n; dec_tsf_res: n> b_access
+  | NNNN : <read: n; write: n; inc: n; dec_tsf_res: n> b_access
 
-(** Existential wrapper *)
-type b_access_wrapper =
-    B_Any : ('a, 'b, 'c, 'd) b_access -> b_access_wrapper
-
-val string_of_b_access : b_access_wrapper -> string
+val string_of_b_access : _ b_access -> string
 val make_access_bytes :
-  ('a, 'b, 'c, 'd) b_access ->
-  ('e, 'f, 'g, 'h) b_access ->
-  ('i, 'j, 'k, 'l) b_access ->
-  ('m, 'n, 'o, 'p, 'q, 'r) t_access ->
+  _ b_access -> _ b_access -> _ b_access ->
+  _ t_access ->
   char * char * char
+
+type b_access_wrapper = B_Any: _ b_access -> b_access_wrapper
 val b_access_of_trailer :
   [< `B0 | `B1 | `B2 | `T ] ->
   bytes ->
   b_access_wrapper
 
 
-type (
-  _, _, _, _, (* block 0 *)
-  _, _, _, _, (* block 1 *)
-  _, _, _, _, (* block 2 *)
-  _, _, _, _, _, _, (* trailer *)
-  _ (* key *)
-) sector
+type 'a sector
+constraint 'a = <
+  block0: _ b_access;
+  block1: _ b_access;
+  block2: _ b_access;
+  trailer: _ t_access;
+  key: _;
+>
 
 val authenticate_a:
   int ->
   string ->
-  (_, _, _, _,
-  _, _, _, _,
-  _, _, _, _,
-  _, _, _, _, _, _,
-  [`A]) sector
+  <key: a; ..> sector
 
 val authenticate_b:
   int ->
   string ->
-  (_, _, _, _,
-  _, _, _, _,
-  _, _, _, _,
-  _, _, _, _, _, _,
-  [`B]) sector
+  <key: b; ..> sector
 
-type ('read, 'write, 'increment, 'decr_tran_rest, 'key) block
+type 'a block
+constraint 'a = <access: _; key: _>
 
 val access_0:
-  ('a, 'b, 'c, 'd,
-  _, _, _, _,
-  _, _, _, _,
-  _, _, _, _, _, _,
-  'x) sector ->
-  ('a, 'b, 'c, 'd, 'x) block
+  <block0: 'a; key: 'b; ..> sector ->
+  <access: 'a; key: 'b> block
 
 val access_1:
-  (_, _, _, _,
-  'e, 'f, 'g, 'h,
-  _, _, _, _,
-  _, _, _, _, _, _,
-  'x) sector ->
-  ('e, 'f, 'g, 'h, 'x) block
+  <block1: 'a; key: 'b; ..> sector ->
+  <access: 'a; key: 'b> block
 
 val access_2:
-  (_, _, _, _,
-  _, _, _, _,
-  'i, 'j, 'k, 'l,
-  _, _, _, _, _, _,
-  'x) sector ->
-  ('i, 'j, 'k, 'l, 'x) block
+  <block2: 'a; key: 'b; ..> sector ->
+  <access: 'a; key: 'b> block
 
-(*
 val access_t:
-  (_, _, _, _,
-  _, _, _, _,
-  _, _, _, _,
-  'm, 'n, 'o, 'p, 'q, 'r,
-  'x) sector ->
-  ('m, 'n, 'o, 'p, 'q, 'r, 'x) trailer
-*)
+  <trailer: 'a; key: 'b; ..> sector ->
+  <access: 'a; key: 'b> block
 
-val read_a: ([> `A], 'b, 'c, 'd, [`A]) block -> bytes
-val read_b: ([> `B], 'b, 'c, 'd, [`B]) block -> bytes
+val read_a:
+  <access: <read: [> `A]; ..> b_access; key: a> block ->
+  bytes
+val read_b:
+  <access: <read: [> `B]; ..> b_access; key: b> block ->
+  bytes
 
-val write_a: ('a, [> `A], 'c, 'd, [`A]) block -> bytes -> unit
-val write_b: ('a, [> `B], 'c, 'd, [`B]) block -> bytes -> unit
+val write_a:
+  <access: <write: [> `A]; ..> b_access; key: a> block ->
+  bytes ->
+  unit
+val write_b:
+  <access: <write: [> `B]; ..> b_access; key: b> block ->
+  bytes ->
+  unit
 
-val increment_a: ('a, 'b, [> `A], 'd, [`A]) block -> int -> unit
-val increment_b: ('a, 'b, [> `B], 'd, [`B]) block -> int -> unit
+val inc_a:
+  dst:<access: <dec_tsf_res: [> `A]; ..> b_access; key: a> block ->
+  <access: <inc: [> `A]; ..> b_access; key: a> block ->
+  int ->
+  unit
+val inc_b:
+  dst:<access: <dec_tsf_res: [> `B]; ..> b_access; key: b> block ->
+  <access: <inc: [> `B]; ..> b_access; key: b> block ->
+  int ->
+  unit
 
-val decrement_a: ('a, 'b, 'c, [> `A], [`A]) block -> int -> unit
-val decrement_b: ('a, 'b, 'c, [> `B], [`B]) block -> int -> unit
+val dec_a:
+  dst:<access: <dec_tsf_res: [> `A]; ..> b_access; key: a> block ->
+  <access: <dec_tsf_res: [> `A]; ..> b_access; key: a> block ->
+  int ->
+  unit
+val dec_b:
+  dst:<access: <dec_tsf_res: [> `B]; ..> b_access; key: b> block ->
+  <access: <dec_tsf_res: [> `B]; ..> b_access; key: b> block ->
+  int ->
+  unit
 
-(*
-val transfer_a: dst:('a, 'b, 'c, 'x, [`A]) block -> unit
-val transfer_b: dst:('a, 'b, 'c, 'x, [`B]) block -> unit
-
-val restore_a: src:('a, 'b, 'c, 'x, [`A]) block -> unit
-val restore_b: src:('a, 'b, 'c, 'x, [`B]) block -> unit
-*)
+val copy_a:
+  dst:<access: <dec_tsf_res: [> `A]; ..> b_access; key: a> block ->
+  <access: <dec_tsf_res: [> `A]; ..> b_access; key: a> block ->
+  unit
+val copy_b:
+  dst:<access: <dec_tsf_res: [> `B]; ..> b_access; key: b> block ->
+  <access: <dec_tsf_res: [> `B]; ..> b_access; key: b> block ->
+  unit
