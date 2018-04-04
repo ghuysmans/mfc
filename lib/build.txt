@@ -1,0 +1,1 @@
+ocamlbuild -use-ocamlfind -pkg ctypes,ctypes.foreign,ctypes.stubs -lflags -cclib,-lnfc unsafe.native unsafe.inferred.mli
