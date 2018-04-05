@@ -43,7 +43,7 @@
 #ifndef _LIBNFC_MIFARE_H_
 #  define _LIBNFC_MIFARE_H_
 
-#  include <nfc/nfc-types.h>
+#  include <nfc/nfc.h>
 
 // Compiler directive, set struct alignment to 1 uint8_t for compatibility
 #  pragma pack(1)
@@ -85,6 +85,12 @@ typedef union {
   struct mifare_param_value mpv;
   struct mifare_param_trailer mpt;
 } mifare_param;
+
+typedef struct {
+  mifare_cmd op;
+  uint8_t block;
+  mifare_param p;
+} mifare_command;
 
 // Reset struct alignment to default
 #  pragma pack()

@@ -8,10 +8,10 @@ let ctx : ctx structure typ = structure "nfc_context"
 let init () =
   let p = allocate (ptr ctx) (from_voidp ctx null) in
   (foreign "nfc_init" (ptr (ptr ctx) @-> returning void)) p;
-  if is_null (!@ p) then
+  if is_null !@p then
     failwith "nfc_init"
   else
-    !@ p
+    !@p
 let exit = foreign "nfc_exit" (ptr ctx @-> returning void)
 
 type dev
@@ -30,14 +30,14 @@ let open_initiator context =
   else if initiator_init d < 0 then
     failwith @@ "nfc_initiator_init: " ^ (strerror d)
   (* FIXME does this work? *)
-  else if set_property_bool d 11 true < 0 then
+  else if set_property_bool d _EASY_FRAMING true < 0 then
     failwith @@ "nfc_device_set_property_bool(EASY_FRAMING): " ^ (strerror d)
   else
     d
 let close = foreign "nfc_close" (ptr dev @-> returning void)
 
 let single_uid_of_t t =
-  let a = getf (getf (!@ t) target_nti) uid in
+  let a = getf (getf !@t target_nti) uid in
   let f acc x = (acc lsl 8) lor Unsigned.UInt8.to_int x in
   CArray.sub a 0 4 |>
   CArray.fold_left f 0
@@ -47,11 +47,11 @@ let select_passive_target =
 let select ?target_uid ~infinite_select d =
   let mifare_modulation =
     let m = make modulation in
-    setf m modulation_type 1 (* NMT_ISO14443A *);
-    setf m modulation_baud_rate 1 (* NBR_106 *);
+    setf m modulation_type _NMT_ISO14443A;
+    setf m modulation_baud_rate _NBR_106;
     m
   in
-  if set_property_bool d 7 infinite_select < 0 then
+  if set_property_bool d _INFINITE_SELECT infinite_select < 0 then
     failwith @@ "nfc_device_set_property_bool(INFINITE_SELECT): " ^ (strerror d)
   else
     let t = make target in (* FIXME initialize it? *)
@@ -70,49 +70,35 @@ let select ?target_uid ~infinite_select d =
 
 let initiator_transceive_bytes =
   foreign "nfc_initiator_transceive_bytes" (ptr dev @->
-  string @-> int @-> string_opt (* FIXME? *) @-> int @-> int @-> returning int)
+  ptr command @-> int @-> string_opt (* FIXME? *) @-> int @-> int @-> returning int)
 
-let authenticate d id key block =
-  let mc, key =
-    match key with
-    | `A k -> 96, k
-    | `B k -> 97, k
-  in
-  let buf = Bytes.create 12 in
-  Bytes.set buf 0 (Char.unsafe_chr mc);
-  Bytes.set buf 1 (char_of_int block);
-  Bytes.blit buf 2 key 0 6;
-  (* FIXME keep a t so that we can copy this array *)
-  (* FIXME is masking needed? *)
-  Bytes.set buf 8 (Char.unsafe_chr (id lsr 24));
-  Bytes.set buf 9 (Char.unsafe_chr (id lsr 16));
-  Bytes.set buf 10 (Char.unsafe_chr (id lsr 8));
-  Bytes.set buf 11 (Char.unsafe_chr id);
-  match initiator_transceive_bytes d buf 12 None 0 (-1) with
-  | -20 (* NFC_ERFTRANS *) ->
+let execute d key blk f =
+  let cmd = make command in
+  setf cmd op (match key with `A -> _MC_AUTH_A | `B -> _MC_AUTH_B);
+  setf cmd block (Unsigned.UInt8.of_int blk);
+  let n_send, b_recv, n_recv = f (getf cmd p) in
+  let x = initiator_transceive_bytes d (addr cmd) n_send b_recv n_recv (-1) in
+  if x = _ERFTRANS then
     `Denied
-  | x when x < 0 ->
-    failwith @@ "nfc_initiator_init: " ^ (strerror d)
-  | x ->
+  else if x < 0 then
+    failwith @@ "nfc_initiator_transceive_bytes: " ^ (strerror d)
+  else
     `Done
 
-(*
-struct mifare_param_value {
-  uint8_t  abtValue[4];
-};
+let copy dest src len =
+  for i = 0 to len - 1 do
+    CArray.set dest i (Bytes.get src i |> int_of_char |> Unsigned.UInt8.of_int)
+  done
 
-(* MC_READ *) 48
-(* MC_TRANSFER *) 176
-(* MC_WRITE *) 160
-(* MC_DECREMENT *) 192
-(* MC_INCREMENT *) 193
-(* MC_STORE *) 194
-*)
+let authenticate d t key secret blk =
+  let f p =
+    copy (getf (getf p mpa) auth_key) secret 6;
+    12, None, 0
+  in
+  execute d key blk f
 
 
 let () =
-  Printf.printf "nai is %d\n" (Ctypes.sizeof nai);
-  Printf.printf "target is %d\n" (Ctypes.sizeof target);
   let c = init () in
   let d = open_initiator c in
   (match select d ~infinite_select:false with
