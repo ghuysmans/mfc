@@ -29,7 +29,6 @@ let open_initiator context =
     failwith "nfc_open"
   else if initiator_init d < 0 then
     failwith @@ "nfc_initiator_init: " ^ (strerror d)
-  (* FIXME does this work? *)
   else if set_property_bool d _EASY_FRAMING true < 0 then
     failwith @@ "nfc_device_set_property_bool(EASY_FRAMING): " ^ (strerror d)
   else
@@ -72,6 +71,13 @@ let initiator_transceive_bytes =
   foreign "nfc_initiator_transceive_bytes" (ptr dev @->
   ptr command @-> int @-> string_opt (* FIXME? *) @-> int @-> int @-> returning int)
 
+let dump t s =
+  let p = coerce (ptr t) (ptr char) s in
+  for i = 0 to sizeof t - 1 do
+    Printf.printf "%02x " (int_of_char !@(p +@ i))
+  done;
+  Printf.printf "\n"
+
 let execute d key blk f =
   let cmd = make command in
   setf cmd op (match key with `A -> _MC_AUTH_A | `B -> _MC_AUTH_B);
@@ -92,6 +98,7 @@ let copy dest src len =
 
 let authenticate d t key secret blk =
   let f p =
+    setf (getf p mpa) auth_uid (getf (getf !@t target_nti) uid);
     copy (getf (getf p mpa) auth_key) secret 6;
     12, None, 0
   in
@@ -102,7 +109,9 @@ let () =
   let c = init () in
   let d = open_initiator c in
   (match select d ~infinite_select:false with
-  | None -> print_endline "nothing"
-  | Some t -> Printf.printf "%08x\n" (single_uid_of_t t));
+  | Some t ->
+    Printf.printf "%08x\n" (single_uid_of_t t);
+    ignore (authenticate d t `B "\xFF\xFF\xFF\xFF\xFF\xFF" 0x3e)
+  | None -> print_endline "nothing");
   close d;
   exit c

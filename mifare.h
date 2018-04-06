@@ -87,7 +87,7 @@ typedef union {
 } mifare_param;
 
 typedef struct {
-  mifare_cmd op;
+  uint8_t op;
   uint8_t block;
   mifare_param p;
 } mifare_command;

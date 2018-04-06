@@ -5,10 +5,10 @@ open Ctypes_static
 let rec field : type t a. t typ -> string -> a typ -> (a, t) field =
   fun s fname ftype -> match s, fname with
   | Struct ({ tag = "mifare_command"} as s'), "p" ->
-    let f = {ftype; fname; foffset = 5} in 
+    let f = {ftype; fname; foffset = 2} in 
     (s'.fields <- BoxedField f :: s'.fields; f)
   | Struct ({ tag = "mifare_command"} as s'), "block" ->
-    let f = {ftype; fname; foffset = 4} in 
+    let f = {ftype; fname; foffset = 1} in 
     (s'.fields <- BoxedField f :: s'.fields; f)
   | Struct ({ tag = "mifare_command"} as s'), "op" ->
     let f = {ftype; fname; foffset = 0} in 
@@ -65,7 +65,7 @@ let rec field : type t a. t typ -> string -> a typ -> (a, t) field =
 
 let rec seal : type a. a typ -> unit = function
   | Struct ({ tag = "mifare_command"; spec = Incomplete _ } as s') ->
-    s'.spec <- Complete { size = 21; align = 1 }
+    s'.spec <- Complete { size = 18; align = 1 }
   | Union ({ utag = "mifare_param"; uspec = None } as s') ->
     s'.uspec <- Some { size = 16; align = 1 }
   | Struct ({ tag = "mifare_param_auth"; spec = Incomplete _ } as s') ->

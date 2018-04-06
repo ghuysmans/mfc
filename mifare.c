@@ -107,6 +107,9 @@ nfc_initiator_mifare_cmd(nfc_device *pnd, const mifare_cmd mc, const uint8_t ui8
     nfc_perror(pnd, "nfc_device_set_property_bool");
     return false;
   }
+  for (int i=0; i<szParamLen+2; i++)
+    printf("%02x ", abtCmd[i]);
+  printf("\n");
   // Fire the mifare command
   int res;
   if ((res = nfc_initiator_transceive_bytes(pnd, abtCmd, 2 + szParamLen, abtRx, sizeof(abtRx), -1))  < 0) {
