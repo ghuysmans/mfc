@@ -14,10 +14,23 @@ let init () =
     !@p
 let exit = foreign "nfc_exit" (ptr ctx @-> returning void)
 
+exception No_device
+exception Nfc_error of int * string
+exception Invalid_key (* "You need to re-select the tag to operate with." *)
+exception Denied
+
 type dev
 let dev : dev structure typ = structure "nfc_device"
 type device = dev structure ptr
 let strerror = foreign "nfc_strerror" (ptr dev @-> returning string)
+let handle d x =
+  if x = _ERFTRANS then
+    raise Denied
+  else if x = _EMFCAUTHFAIL then
+    raise Invalid_key
+  else if x < 0 then
+    raise (Nfc_error (x, strerror d))
+
 let initiator_init = foreign "nfc_initiator_init" (ptr dev @-> returning int)
 let set_property_bool =
   foreign "nfc_device_set_property_bool" (ptr dev @->
@@ -26,13 +39,12 @@ let open_initiator context =
   let f = (foreign "nfc_open" (ptr ctx @-> ptr char @-> returning (ptr dev))) in
   let d = f context (from_voidp char null) in
   if is_null d then
-    failwith "nfc_open"
-  else if initiator_init d < 0 then
-    failwith @@ "nfc_initiator_init: " ^ (strerror d)
-  else if set_property_bool d _EASY_FRAMING true < 0 then
-    failwith @@ "nfc_device_set_property_bool(EASY_FRAMING): " ^ (strerror d)
-  else
+    raise No_device
+  else (
+    handle d (initiator_init d);
+    handle d (set_property_bool d _EASY_FRAMING true);
     d
+  )
 let close = foreign "nfc_close" (ptr dev @-> returning void)
 
 let single_uid_of_t t =
@@ -50,46 +62,45 @@ let select ?target_uid ~infinite_select d =
     setf m modulation_baud_rate _NBR_106;
     m
   in
-  if set_property_bool d _INFINITE_SELECT infinite_select < 0 then
-    failwith @@ "nfc_device_set_property_bool(INFINITE_SELECT): " ^ (strerror d)
+  handle d (set_property_bool d _INFINITE_SELECT infinite_select);
+  let t = make target in
+  let a = addr t in
+  let len =
+    match target_uid with
+    | None -> 0
+    | Some uid -> assert (String.length uid = 4); 4
+  in
+  if select_passive_target d mifare_modulation target_uid len a < 1 then
+    None
+  else if Unsigned.UInt8.to_int (getf (getf t target_nti) sak) land 8 = 0 then
+    None (* not a Mifare Classic *)
   else
-    let t = make target in (* FIXME initialize it? *)
-    let a = addr t in
-    let len =
-      match target_uid with
-      | None -> 0
-      | Some uid -> assert (String.length uid = 4); 4
-    in
-    if select_passive_target d mifare_modulation target_uid len a < 1 then
-      None
-    else if Unsigned.UInt8.to_int (getf (getf t target_nti) sak) land 8 = 0 then
-      None (* not a Mifare Classic, FIXME raise an exception? *)
-    else
-      Some a
+    Some a
 
 let initiator_transceive_bytes =
   foreign "nfc_initiator_transceive_bytes" (ptr dev @->
-  ptr command @-> int @-> string_opt (* FIXME? *) @-> int @-> int @-> returning int)
+  ptr command @-> int @-> ptr_opt uint8_t @-> int @-> int @-> returning int)
 
-let dump t s =
+let dump_c t ?limit s =
   let p = coerce (ptr t) (ptr char) s in
-  for i = 0 to sizeof t - 1 do
+  let l =
+    match limit with
+    | None -> sizeof t
+    | Some limit -> min limit (sizeof t)
+  in
+  for i = 0 to l - 1 do
     Printf.printf "%02x " (int_of_char !@(p +@ i))
   done;
   Printf.printf "\n"
 
-let execute d key blk f =
+let execute d blk f =
   let cmd = make command in
-  setf cmd op (match key with `A -> _MC_AUTH_A | `B -> _MC_AUTH_B);
+  let mc, n_send, b_recv, n_recv = f (getf cmd p) in
+  setf cmd op mc;
   setf cmd block (Unsigned.UInt8.of_int blk);
-  let n_send, b_recv, n_recv = f (getf cmd p) in
+  dump_c command ~limit:n_send (addr cmd);
   let x = initiator_transceive_bytes d (addr cmd) n_send b_recv n_recv (-1) in
-  if x = _ERFTRANS then
-    `Denied
-  else if x < 0 then
-    failwith @@ "nfc_initiator_transceive_bytes: " ^ (strerror d)
-  else
-    `Done
+  handle d x
 
 let copy dest src len =
   for i = 0 to len - 1 do
@@ -97,12 +108,68 @@ let copy dest src len =
   done
 
 let authenticate d t key secret blk =
-  let f p =
+  execute d blk (fun p ->
     setf (getf p mpa) auth_uid (getf (getf !@t target_nti) uid);
     copy (getf (getf p mpa) auth_key) secret 6;
-    12, None, 0
+    (match key with `A -> _MC_AUTH_A | `B -> _MC_AUTH_B), 12, None, 0
+  )
+
+let read d ?buf blk =
+  let buf = CArray.make uint8_t 16 in
+  execute d blk (fun _ ->
+    _MC_READ, 2, Some (CArray.start buf), 16
+  );
+  buf
+
+let dump b =
+  for i = 0 to Bytes.length b - 1 do
+    Printf.printf "%02x " (int_of_char (Bytes.get b i))
+  done;
+  Printf.printf "\n"
+
+let dump_a a =
+  CArray.iter (fun c -> Printf.printf "%02x " (Unsigned.UInt8.to_int c)) a;
+  Printf.printf "\n"
+
+let write d blk f =
+  execute d blk (fun p ->
+    f (getf p mpd);
+    _MC_WRITE, 18, None, 0
+  )
+
+exception Inconsistent_value
+
+let decode_value_block b =
+  for i = 0 to 3 do
+    let v = CArray.get b i in
+    let v' = Unsigned.UInt8.lognot v in
+    if v <> CArray.get b (i + 8) || v' <> CArray.get b (i + 4) then
+      raise Inconsistent_value
+    else if i < 3 then
+      let a = CArray.get b (i + 12) in
+      let a' = Unsigned.UInt8.lognot a in
+      if a' <> CArray.get b (i + 13) then
+        raise Inconsistent_value
+  done;
+  let v =
+    !@ (coerce (ptr uint8_t) (ptr int32_t) (CArray.start b)) |>
+    Signed.Int32.to_int
   in
-  execute d key blk f
+  v, CArray.get b 12
+
+let write_value d blk v a =
+  write d blk (fun p ->
+    failwith "TODO"
+  )
+
+let increment d ?(by=1) blk =
+  if by <> 0 then (
+    execute d blk (fun p ->
+      setf p mpv (Signed.Int32.of_int (abs by));
+      (if by > 0 then _MC_INCREMENT else _MC_DECREMENT), 6, None, 0
+    );
+    execute d blk (fun _ -> _MC_TRANSFER, 2, None, 0)
+  )
 
 
 let () =
@@ -111,7 +178,10 @@ let () =
   (match select d ~infinite_select:false with
   | Some t ->
     Printf.printf "%08x\n" (single_uid_of_t t);
-    ignore (authenticate d t `B "\xFF\xFF\xFF\xFF\xFF\xFF" 0x3e)
+    authenticate d t `A "\xFF\xFF\xFF\xFF\xFF\xFF" 0x3e;
+    let buf = read d 0x3e in
+    Printf.printf "value=%d\n" (decode_value_block buf |> fst);
+    increment d 0x3e
   | None -> print_endline "nothing");
   close d;
   exit c

@@ -102,6 +102,8 @@ let constant (type t) name (t : t typ) : t = match t, name with
     Unsigned.UInt8.of_string "97"
   | Ctypes_static.Primitive Cstubs_internals.Uint8_t, "MC_AUTH_A" ->
     Unsigned.UInt8.of_string "96"
+  | Ctypes_static.Primitive Cstubs_internals.Int, "NFC_EMFCAUTHFAIL" ->
+    -30
   | Ctypes_static.Primitive Cstubs_internals.Int, "NP_INFINITE_SELECT" ->
     7
   | Ctypes_static.Primitive Cstubs_internals.Int, "NBR_106" ->

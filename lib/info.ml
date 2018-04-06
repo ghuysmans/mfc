@@ -6,6 +6,7 @@ module Make (T : Cstubs.Types.TYPE) = struct
   let _NMT_ISO14443A = constant "NMT_ISO14443A" int
   let _NBR_106 = constant "NBR_106" int
   let _INFINITE_SELECT = constant "NP_INFINITE_SELECT" int
+  let _EMFCAUTHFAIL = constant "NFC_EMFCAUTHFAIL" int
 
   type nai
   let nai : nai structure typ =
